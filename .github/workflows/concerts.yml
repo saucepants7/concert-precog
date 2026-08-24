@@ -19,11 +19,12 @@ jobs:
 
       - name: Find shows
         env:
-          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          LASTFM_USER:    ${{ secrets.LASTFM_USER }}
-          TM_API_KEY:     ${{ secrets.TM_API_KEY }}
-          NTFY_TOPIC:     ${{ secrets.NTFY_TOPIC }}
-          SEED_ARTISTS:   ${{ secrets.SEED_ARTISTS }}   # optional: comma-separated booster list
+          LASTFM_API_KEY:     ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_USER:        ${{ secrets.LASTFM_USER }}
+          TM_API_KEY:         ${{ secrets.TM_API_KEY }}
+          SEATGEEK_CLIENT_ID: ${{ secrets.SEATGEEK_CLIENT_ID }}
+          NTFY_TOPIC:         ${{ secrets.NTFY_TOPIC }}
+          SEED_ARTISTS:       ${{ secrets.SEED_ARTISTS }}
         run: python concert_brain.py
 
       - name: Save data + dashboard
