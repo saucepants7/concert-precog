@@ -201,11 +201,14 @@ def main():
     seeds = lastfm_top_artists(lastfm_user, lastfm_key)
     # cold-start / booster: optional comma-separated SEED_ARTISTS env
     manual = [a.strip() for a in os.environ.get("SEED_ARTISTS", "").split(",") if a.strip()]
-    seeds_out, seen = [], set()                    # dedupe case-insensitively
+    seeds_out, seen = [], {}                       # dedupe case-insensitively
     for a in manual + seeds:
-        if a.lower() not in seen:
-            seen.add(a.lower())
+        k = a.lower()
+        if k not in seen:
+            seen[k] = len(seeds_out)
             seeds_out.append(a)
+        elif seeds_out[seen[k]].islower() and not a.islower():
+            seeds_out[seen[k]] = a                  # prefer proper capitalization
     seeds = seeds_out
     print(f"Seeds ({len(seeds)}): {', '.join(seeds[:8])}...")
     recs = build_recommendations(seeds, lastfm_key)
@@ -222,7 +225,13 @@ def main():
         for s in tm_shows_for(artist, tm_key):
             is_new = s["event_id"] not in existing
             db.execute(
-                "INSERT OR IGNORE INTO shows VALUES (?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO shows
+                   (event_id,artist,tier,reason,name,date,venue,city,url,first_seen)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(event_id) DO UPDATE SET
+                     artist=excluded.artist, tier=excluded.tier,
+                     reason=excluded.reason, name=excluded.name, date=excluded.date,
+                     venue=excluded.venue, city=excluded.city, url=excluded.url""",
                 (s["event_id"], artist, tier, reason, s["name"], s["date"],
                  s["venue"], s["city"], s["url"], now))
             if is_new and s["date"]:
