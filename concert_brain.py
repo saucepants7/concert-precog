@@ -139,9 +139,17 @@ def build_dashboard(db):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def rows(tier):
-        return db.execute(
+        raw = db.execute(
             "SELECT artist,reason,name,date,venue,city,url FROM shows "
             "WHERE tier=? AND date>=? ORDER BY date", (tier, today)).fetchall()
+        seen, out = set(), []                      # collapse same show listed twice
+        for r in raw:
+            k = ((r[0] or "").lower(), r[3])       # (artist, date)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(r)
+        return out
 
     def table(items, discover):
         if not items:
@@ -193,7 +201,12 @@ def main():
     seeds = lastfm_top_artists(lastfm_user, lastfm_key)
     # cold-start / booster: optional comma-separated SEED_ARTISTS env
     manual = [a.strip() for a in os.environ.get("SEED_ARTISTS", "").split(",") if a.strip()]
-    seeds = list(dict.fromkeys(manual + seeds))   # dedupe, manual first
+    seeds_out, seen = [], set()                    # dedupe case-insensitively
+    for a in manual + seeds:
+        if a.lower() not in seen:
+            seen.add(a.lower())
+            seeds_out.append(a)
+    seeds = seeds_out
     print(f"Seeds ({len(seeds)}): {', '.join(seeds[:8])}...")
     recs = build_recommendations(seeds, lastfm_key)
     print(f"Recommended {len(recs)} artists to check.")
@@ -220,6 +233,13 @@ def main():
     db.close()
 
     if new_shows:
+        seen, deduped = set(), []                  # one ping per show
+        for tier, artist, s, reason in new_shows:
+            k = ((artist or "").lower(), s["date"])
+            if k not in seen:
+                seen.add(k)
+                deduped.append((tier, artist, s, reason))
+        new_shows = deduped
         lines = []
         for tier, artist, s, reason in new_shows:
             tag = "" if tier == "following" else f" ({reason})"
