@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Concert discovery brain.
+"""Concert Precog — concert discovery brain.
 
 Reads your top artists from Last.fm (fed by your Spotify scrobbles), expands
 them into similar artists you might like, then checks Ticketmaster AND SeatGeek
@@ -18,17 +18,17 @@ import urllib.request
 from datetime import datetime, timezone
 
 # ---- settings ---------------------------------------------------------------
-STATE_CODE   = "NC"        # wider NC: Charlotte, Greensboro, Triangle, etc.
-TOP_PERIOD   = "3month"    # Last.fm window: 7day|1month|3month|6month|12month|overall
-TOP_N        = 25          # how many of your top artists to seed from
-SIMILAR_PER  = 30          # similar artists pulled per seed
-MAX_DISCOVER = 40          # recommended artists to check for shows
+STATE_CODE   = "NC"
+TOP_PERIOD   = "3month"
+TOP_N        = 25
+SIMILAR_PER  = 30
+MAX_DISCOVER = 40
 LASTFM_API   = "https://ws.audioscrobbler.com/2.0/"
 TM_API       = "https://app.ticketmaster.com/discovery/v2/events.json"
 SG_API       = "https://api.seatgeek.com/2/events"
 DB_PATH   = os.path.join(os.path.dirname(__file__), "concerts.db")
 HTML_PATH = os.path.join(os.path.dirname(__file__), "index.html")
-UA = {"User-Agent": "concert-brain/1.0 (personal project)"}
+UA = {"User-Agent": "concert-precog/1.0 (personal project)"}
 
 
 def get_json(url):
@@ -72,7 +72,7 @@ def build_recommendations(seeds, key):
     ranked = []
     for name, c in cand.items():
         top = sorted(c["contrib"], key=lambda x: -x[1])[:2]
-        reason = "because you listen to " + " and ".join(x[0] for x in top)
+        reason = "Because You Listen to " + " and ".join(x[0] for x in top)
         ranked.append({"name": name, "score": round(c["score"], 3), "reason": reason})
     ranked.sort(key=lambda x: -x["score"])
     return ranked[:MAX_DISCOVER]
@@ -152,11 +152,11 @@ def notify(subject, body):
             print("ntfy failed:", e)
 
 
-# ---- dashboard --------------------------------------------------------------
+# ---- dashboard (Concert Precog theme) ---------------------------------------
 def _chip(datestr):
     try:
         d = datetime.strptime(datestr, "%Y-%m-%d")
-        return d.strftime("%b").upper(), str(d.day)
+        return d.strftime("%b"), str(d.day)
     except Exception:
         return "", ""
 
@@ -179,87 +179,82 @@ def build_dashboard(db):
 
     def section(items, discover):
         if not items:
-            return ("<p class='empty'>Nothing on the calendar yet. "
-                    "The brain checks daily as artists announce dates.</p>")
+            return ("<p class='empty'>Nothing on the calendar yet — "
+                    "the brain checks daily as artists announce dates.</p>")
         cards = []
         for artist, reason, name, date, venue, city, url in items:
             mon, day = _chip(date)
             loc = html.escape(venue or "")
             if city:
-                loc += f" &middot; {html.escape(city)}"
+                loc += " &middot; " + html.escape(city)
             why = (f"<div class='why'>{html.escape(reason or '')}</div>"
                    if discover and reason else "")
             cards.append(
-                f"<a class='show' href='{html.escape(url or '#')}'>"
-                f"<div class='stub'><span class='mon'>{mon}</span>"
+                f"<a class='row' href='{html.escape(url or '#')}'>"
+                f"<div class='date'><span class='mon'>{mon}</span>"
                 f"<span class='day'>{day}</span></div>"
-                f"<div class='info'><div class='artist'>{html.escape(artist or '')}</div>"
-                f"<div class='loc'>{loc}</div>{why}</div>"
-                f"<span class='go'>Tickets &rarr;</span></a>")
+                f"<div class='meta'><div class='title'>{html.escape(artist or '')}</div>"
+                f"<div class='sub'>{loc}</div>{why}</div>"
+                f"<span class='go'>&rsaquo;</span></a>")
         return "<div class='list'>" + "".join(cards) + "</div>"
 
     following, discover = rows("following"), rows("discover")
-    updated = datetime.now(timezone.utc).strftime("%b %-d, %H:%M UTC") \
-        if hasattr(datetime.now(), "strftime") else ""
     updated = datetime.now(timezone.utc).strftime("%b %d, %H:%M UTC")
     doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Marquee &mdash; NC concerts for your taste</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<title>Concert Precog</title>
 <style>
 :root{{
-  --bg:#14121c; --panel:#1c1928; --line:rgba(255,255,255,.08);
-  --ink:#efecf6; --muted:#9b95ad; --amber:#ffc857; --stub:#221e30;
+  --bg:#0f0e13; --text:#ffffff; --muted:#b0abba; --dim:#7c7788;
+  --lav:#c4b5fd; --hair:rgba(255,255,255,.06); --hover:rgba(255,255,255,.04);
 }}
 *{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--ink);
-  font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  line-height:1.45}}
-.wrap{{max-width:760px;margin:0 auto;padding:2rem 1.1rem 4rem}}
-header{{border-bottom:1px solid var(--line);padding-bottom:1.1rem;margin-bottom:1.6rem}}
-h1{{font-family:'Bebas Neue',sans-serif;font-size:clamp(2.4rem,7vw,3.4rem);
-  letter-spacing:.04em;margin:0;line-height:.95}}
-h1 .amp{{color:var(--amber)}}
-.tagline{{color:var(--muted);font-size:.86rem;margin-top:.5rem}}
-.eyebrow{{font-family:'Bebas Neue',sans-serif;letter-spacing:.12em;
-  font-size:1.15rem;color:var(--amber);margin:2rem 0 .7rem}}
-.eyebrow span{{color:var(--muted);font-size:.75rem;letter-spacing:.04em}}
-.list{{display:flex;flex-direction:column;gap:.55rem}}
-.show{{display:flex;align-items:stretch;gap:.9rem;background:var(--panel);
-  border:1px solid var(--line);border-radius:12px;padding:.7rem .9rem;
-  text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}}
-.show:hover{{border-color:var(--amber);transform:translateY(-1px)}}
-.show:focus-visible{{outline:2px solid var(--amber);outline-offset:2px}}
-.stub{{flex:0 0 auto;width:52px;background:var(--stub);border-radius:8px;
-  border-right:2px dashed var(--line);display:flex;flex-direction:column;
-  align-items:center;justify-content:center;padding:.35rem 0}}
-.stub .mon{{font-family:'Bebas Neue',sans-serif;font-size:.9rem;
-  letter-spacing:.08em;color:var(--amber)}}
-.stub .day{{font-family:'Bebas Neue',sans-serif;font-size:1.6rem;line-height:1}}
-.info{{flex:1 1 auto;min-width:0;align-self:center}}
-.artist{{font-weight:650;font-size:1.02rem}}
-.loc{{color:var(--muted);font-size:.85rem;margin-top:.1rem}}
-.why{{color:var(--amber);font-size:.78rem;margin-top:.25rem;opacity:.85}}
-.go{{align-self:center;flex:0 0 auto;color:var(--muted);font-size:.8rem;white-space:nowrap}}
-.show:hover .go{{color:var(--amber)}}
-.empty{{color:var(--muted);font-size:.9rem;background:var(--panel);
-  border:1px dashed var(--line);border-radius:12px;padding:1rem}}
-footer{{color:var(--muted);font-size:.75rem;margin-top:2.5rem;
-  border-top:1px solid var(--line);padding-top:1rem}}
-@media(max-width:460px){{.go{{display:none}}}}
+body{{margin:0;background:var(--bg);color:var(--text);
+  font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;line-height:1.4;
+  -webkit-font-smoothing:antialiased}}
+.wrap{{max-width:640px;margin:0 auto;padding:2.6rem 1.2rem 4rem}}
+header{{border-bottom:1px solid var(--hair);padding-bottom:1.3rem;margin-bottom:.6rem}}
+.word{{font-weight:700;font-size:1.3rem;letter-spacing:.16em;text-transform:uppercase;margin:0}}
+.tag{{color:var(--muted);font-size:.88rem;margin:.45rem 0 0;font-weight:400}}
+.section{{margin-top:2.4rem}}
+.section h2{{font-size:1.15rem;font-weight:600;letter-spacing:-.01em;margin:0}}
+.section .sub{{color:var(--dim);font-size:.7rem;margin:.18rem 0 .7rem;
+  text-transform:uppercase;letter-spacing:.13em;font-weight:500}}
+.list{{display:flex;flex-direction:column}}
+.row{{display:flex;align-items:center;gap:.95rem;text-decoration:none;color:inherit;
+  padding:.65rem .55rem;border-radius:8px;transition:background .15s}}
+.row:hover{{background:var(--hover)}}
+.row:focus-visible{{outline:2px solid var(--lav);outline-offset:-2px}}
+.date{{flex:0 0 auto;width:50px;height:50px;border-radius:7px;background:var(--lav);
+  display:flex;flex-direction:column;align-items:center;justify-content:center}}
+.date .mon{{font-size:.62rem;font-weight:700;letter-spacing:.06em;
+  color:#2a1f45;text-transform:uppercase}}
+.date .day{{font-size:1.3rem;font-weight:700;line-height:1.05;color:#1a1330}}
+.meta{{flex:1 1 auto;min-width:0}}
+.title{{font-weight:500;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.sub{{color:var(--muted);font-size:.82rem;margin-top:.12rem;font-weight:400;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.why{{color:var(--dim);font-size:.76rem;margin-top:.2rem;font-weight:400}}
+.go{{flex:0 0 auto;color:var(--dim);font-size:1.25rem;line-height:1;opacity:0;
+  transform:translateX(-5px);transition:opacity .15s,transform .15s}}
+.row:hover .go{{opacity:1;transform:translateX(0)}}
+.empty{{color:var(--dim);font-size:.85rem;padding:.6rem .55rem}}
+footer{{color:var(--dim);font-size:.73rem;margin-top:2.8rem;
+  border-top:1px solid var(--hair);padding-top:1.1rem;font-weight:400}}
+@media(max-width:440px){{.sub{{white-space:normal}}.go{{display:none}}}}
 </style></head><body><div class="wrap">
 <header>
-<h1>MARQUEE</h1>
-<div class="tagline">Live shows in North Carolina, tuned to what you actually listen to.</div>
+<h1 class="word">Concert Precog</h1>
+<p class="tag">Live shows in North Carolina, tuned to what you actually listen to.</p>
 </header>
 
-<div class="eyebrow">In rotation <span>&mdash; artists you already play</span></div>
-{section(following, False)}
+<div class="section"><h2>In Rotation</h2>
+<div class="sub">Artists you already play</div>
+{section(following, False)}</div>
 
-<div class="eyebrow">On your radar <span>&mdash; you might like these</span></div>
-{section(discover, True)}
+<div class="section"><h2>On Your Radar</h2>
+<div class="sub">You might like these</div>
+{section(discover, True)}</div>
 
 <footer>Seeded from your Last.fm top artists, expanded through similar artists,
 matched against Ticketmaster &amp; SeatGeek in NC. Updated {updated}.</footer>
@@ -317,7 +312,6 @@ def main():
         time.sleep(0.2)
     db.commit()
 
-    # one alert per real show (a show on both sources collapses)
     seen, deduped = set(), []
     for tier, artist, s, reason in new_shows:
         k = ((artist or "").lower(), s["date"])
