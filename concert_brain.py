@@ -3,8 +3,8 @@
 
 Reads your top artists from Last.fm (fed by your Spotify scrobbles), expands
 them into similar artists you might like, then checks Ticketmaster AND SeatGeek
-for any of those acts playing in North Carolina. Flags shows from artists you
-already listen to and new artists it thinks you'd like, with the "why" attached.
+for any of those acts playing in North Carolina. Shows everything on one
+chronological calendar, color-coded by how each artist reached you.
 
 Free + stdlib only (Last.fm + Ticketmaster + SeatGeek APIs). No pip installs.
 """
@@ -22,7 +22,7 @@ STATE_CODE   = "NC"
 TOP_PERIOD   = "3month"
 TOP_N        = 25
 SIMILAR_PER  = 30
-MAX_DISCOVER = 40
+MAX_DISCOVER = 50          # top 25 -> "top" (mustard), 26-50 -> "deep" (rust)
 LASTFM_API   = "https://ws.audioscrobbler.com/2.0/"
 TM_API       = "https://app.ticketmaster.com/discovery/v2/events.json"
 SG_API       = "https://api.seatgeek.com/2/events"
@@ -100,7 +100,7 @@ def tm_shows_for(artist, key):
         out.append({"event_id": ev["id"], "name": ev.get("name"),
                     "date": ev.get("dates", {}).get("start", {}).get("localDate"),
                     "venue": v.get("name"), "city": (v.get("city", {}) or {}).get("name"),
-                    "url": ev.get("url"), "source": "TM"})
+                    "url": ev.get("url")})
     return out
 
 
@@ -126,7 +126,7 @@ def sg_shows_for(artist, cid):
         out.append({"event_id": "sg-" + str(ev["id"]), "name": ev.get("title"),
                     "date": (ev.get("datetime_local") or "")[:10],
                     "venue": v.get("name"), "city": v.get("city"),
-                    "url": ev.get("url"), "source": "SG"})
+                    "url": ev.get("url")})
     return out
 
 
@@ -152,7 +152,7 @@ def notify(subject, body):
             print("ntfy failed:", e)
 
 
-# ---- dashboard (Concert Precog theme) ---------------------------------------
+# ---- dashboard (Concert Precog — retro consolidated calendar) ---------------
 def _chip(datestr):
     try:
         d = datetime.strptime(datestr, "%Y-%m-%d")
@@ -163,101 +163,114 @@ def _chip(datestr):
 
 def build_dashboard(db):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    raw = db.execute(
+        "SELECT artist,tier,reason,name,date,venue,city,url FROM shows "
+        "WHERE date>=? ORDER BY date", (today,)).fetchall()
+    seen, items = set(), []
+    for r in raw:
+        k = ((r[0] or "").lower(), r[4])          # (artist, date) — collapse dupes
+        if k in seen:
+            continue
+        seen.add(k)
+        items.append(r)
 
-    def rows(tier):
-        raw = db.execute(
-            "SELECT artist,reason,name,date,venue,city,url FROM shows "
-            "WHERE tier=? AND date>=? ORDER BY date", (tier, today)).fetchall()
-        seen, out = set(), []
-        for r in raw:
-            k = ((r[0] or "").lower(), r[3])
-            if k in seen:
-                continue
-            seen.add(k)
-            out.append(r)
-        return out
-
-    def section(items, discover):
-        if not items:
-            return ("<p class='empty'>Nothing on the calendar yet — "
-                    "the brain checks daily as artists announce dates.</p>")
-        cards = []
-        for artist, reason, name, date, venue, city, url in items:
-            mon, day = _chip(date)
-            loc = html.escape(venue or "")
-            if city:
-                loc += " &middot; " + html.escape(city)
-            why = (f"<div class='why'>{html.escape(reason or '')}</div>"
-                   if discover and reason else "")
-            cards.append(
-                f"<a class='row' href='{html.escape(url or '#')}'>"
-                f"<div class='date'><span class='mon'>{mon}</span>"
-                f"<span class='day'>{day}</span></div>"
-                f"<div class='meta'><div class='title'>{html.escape(artist or '')}</div>"
-                f"<div class='sub'>{loc}</div>{why}</div>"
-                f"<span class='go'>&rsaquo;</span></a>")
-        return "<div class='list'>" + "".join(cards) + "</div>"
-
-    following, discover = rows("following"), rows("discover")
+    cards = []
+    for artist, tier, reason, name, date, venue, city, url in items:
+        tier = tier if tier in ("rot", "top", "deep") else "rot"
+        mon, day = _chip(date)
+        loc = html.escape(venue or "")
+        if city:
+            loc += " &middot; " + html.escape(city)
+        why = (f"<div class='why'>{html.escape(reason or '')}</div>"
+               if tier in ("top", "deep") and reason else "")
+        cards.append(
+            f"<a class='row {tier}' href='{html.escape(url or '#')}'>"
+            f"<div class='date'><span class='mon'>{mon}</span><span class='day'>{day}</span></div>"
+            f"<div class='meta'><div class='title'>{html.escape(artist or '')}</div>"
+            f"<div class='sub'>{loc}</div>{why}</div>"
+            f"<span class='go'>&rsaquo;</span></a>")
+    list_html = "".join(cards) or ("<p class='empty'>Nothing on the calendar yet — "
+                                   "the brain checks daily as artists announce dates.</p>")
     updated = datetime.now(timezone.utc).strftime("%b %d, %H:%M UTC")
+
     doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="theme-color" content="#000000">
 <title>Concert Precog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@500;600;700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{{
-  --bg:#0f0e13; --text:#ffffff; --muted:#b0abba; --dim:#7c7788;
-  --lav:#c4b5fd; --hair:rgba(255,255,255,.06); --hover:rgba(255,255,255,.04);
+  color-scheme:dark;
+  --bg:#000000; --cream:#e0e8c8; --muted:#8c907c;
+  --teal:#568a99; --mustard:#e9a716; --rust:#c7481d; --ink:#0a0a0a;
+  --hair:rgba(224,232,200,.12); --hover:rgba(224,232,200,.05);
 }}
 *{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--text);
-  font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;line-height:1.4;
-  -webkit-font-smoothing:antialiased}}
-.wrap{{max-width:640px;margin:0 auto;padding:2.6rem 1.2rem 4rem}}
-header{{border-bottom:1px solid var(--hair);padding-bottom:1.3rem;margin-bottom:.6rem}}
-.word{{font-weight:700;font-size:1.3rem;letter-spacing:.16em;text-transform:uppercase;margin:0}}
-.tag{{color:var(--muted);font-size:.88rem;margin:.45rem 0 0;font-weight:400}}
-.section{{margin-top:2.4rem}}
-.section h2{{font-size:1.15rem;font-weight:600;letter-spacing:-.01em;margin:0}}
-.section .sub{{color:var(--dim);font-size:.7rem;margin:.18rem 0 .7rem;
-  text-transform:uppercase;letter-spacing:.13em;font-weight:500}}
+html{{background:#000;min-height:100%}}
+body{{margin:0;background:#000;color:var(--cream);
+  font-family:'Poppins',system-ui,sans-serif;line-height:1.4;-webkit-font-smoothing:antialiased}}
+.wrap{{max-width:660px;margin:0 auto;padding:2.2rem 1.2rem 4rem}}
+
+.brand{{text-align:center;margin-bottom:1.8rem}}
+.mark{{display:block;width:380px;max-width:86%;margin:0 auto}}
+.tagline{{margin:.7rem 0 0;font-family:'League Spartan',sans-serif;color:var(--cream);
+  opacity:.85;font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.14em}}
+
+.legend{{display:flex;flex-wrap:wrap;gap:1.1rem;padding:.85rem 0;
+  border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.5rem}}
+.key{{display:flex;align-items:center;gap:.45rem;font-family:'League Spartan',sans-serif;
+  font-size:.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}}
+.sw{{width:13px;height:13px;border-radius:4px;flex:0 0 auto}}
+.sw.rot{{background:var(--teal)}} .sw.top{{background:var(--mustard)}} .sw.deep{{background:var(--rust)}}
+
 .list{{display:flex;flex-direction:column}}
 .row{{display:flex;align-items:center;gap:.95rem;text-decoration:none;color:inherit;
-  padding:.65rem .55rem;border-radius:8px;transition:background .15s}}
+  padding:.65rem .55rem;border-radius:9px;transition:background .15s}}
 .row:hover{{background:var(--hover)}}
-.row:focus-visible{{outline:2px solid var(--lav);outline-offset:-2px}}
-.date{{flex:0 0 auto;width:50px;height:50px;border-radius:7px;background:var(--lav);
+.row:focus-visible{{outline:2px solid var(--cream);outline-offset:-2px}}
+.date{{flex:0 0 auto;width:52px;height:52px;border-radius:9px;color:var(--ink);background:#555;
   display:flex;flex-direction:column;align-items:center;justify-content:center}}
-.date .mon{{font-size:.62rem;font-weight:700;letter-spacing:.06em;
-  color:#2a1f45;text-transform:uppercase}}
-.date .day{{font-size:1.3rem;font-weight:700;line-height:1.05;color:#1a1330}}
+.date .mon{{font-family:'League Spartan',sans-serif;font-size:.64rem;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;opacity:.9}}
+.date .day{{font-family:'League Spartan',sans-serif;font-size:1.5rem;font-weight:800;line-height:.95}}
+.row.rot .date{{background:var(--teal)}}
+.row.top .date{{background:var(--mustard)}}
+.row.deep .date{{background:var(--rust)}}
 .meta{{flex:1 1 auto;min-width:0}}
 .title{{font-weight:500;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.sub{{color:var(--muted);font-size:.82rem;margin-top:.12rem;font-weight:400;
+.sub{{color:var(--muted);font-size:.82rem;margin-top:.1rem;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.why{{color:var(--dim);font-size:.76rem;margin-top:.2rem;font-weight:400}}
-.go{{flex:0 0 auto;color:var(--dim);font-size:1.25rem;line-height:1;opacity:0;
+.why{{font-size:.76rem;margin-top:.22rem;font-weight:500}}
+.row.top .why{{color:var(--mustard)}} .row.deep .why{{color:var(--rust)}}
+.go{{flex:0 0 auto;color:var(--muted);font-size:1.25rem;line-height:1;opacity:0;
   transform:translateX(-5px);transition:opacity .15s,transform .15s}}
 .row:hover .go{{opacity:1;transform:translateX(0)}}
-.empty{{color:var(--dim);font-size:.85rem;padding:.6rem .55rem}}
-footer{{color:var(--dim);font-size:.73rem;margin-top:2.8rem;
-  border-top:1px solid var(--hair);padding-top:1.1rem;font-weight:400}}
+.empty{{color:var(--muted);font-size:.85rem;padding:.6rem .55rem}}
+footer{{color:var(--muted);font-size:.72rem;margin-top:2.6rem;
+  border-top:1px solid var(--hair);padding-top:1.1rem}}
 @media(max-width:440px){{.sub{{white-space:normal}}.go{{display:none}}}}
 </style></head><body><div class="wrap">
-<header>
-<h1 class="word">Concert Precog</h1>
-<p class="tag">Live shows in North Carolina, tuned to what you actually listen to.</p>
-</header>
 
-<div class="section"><h2>In Rotation</h2>
-<div class="sub">Artists you already play</div>
-{section(following, False)}</div>
+<div class="brand">
+  <img class="mark" alt="Precog" src="precog-mark.png">
+  <div class="tagline">Concerts in NC, tuned to your taste.</div>
+</div>
 
-<div class="section"><h2>On Your Radar</h2>
-<div class="sub">You might like these</div>
-{section(discover, True)}</div>
+<div class="legend">
+  <div class="key"><span class="sw rot"></span>In rotation</div>
+  <div class="key"><span class="sw top"></span>New &middot; top matches</div>
+  <div class="key"><span class="sw deep"></span>New &middot; deeper cuts</div>
+</div>
 
-<footer>Seeded from your Last.fm top artists, expanded through similar artists,
-matched against Ticketmaster &amp; SeatGeek in NC. Updated {updated}.</footer>
+<div class="list">
+{list_html}
+</div>
+
+<footer>One calendar, chronological. Tile color shows how each artist reached you.
+Seeded from your Last.fm top artists, matched against Ticketmaster &amp; SeatGeek in NC. Updated {updated}.</footer>
+
 </div></body></html>"""
     with open(HTML_PATH, "w") as f:
         f.write(doc)
@@ -287,8 +300,10 @@ def main():
     recs = build_recommendations(seeds, lastfm_key)
     print(f"Recommended {len(recs)} artists to check.")
 
-    watch = [(s, "following", "in your rotation") for s in seeds]
-    watch += [(r["name"], "discover", r["reason"]) for r in recs]
+    # tiers: rotation (teal) + discover top-25 (mustard) + discover 26-50 (rust)
+    watch = [(s, "rot", "in your rotation") for s in seeds]
+    for i, r in enumerate(recs):
+        watch.append((r["name"], "top" if i < 25 else "deep", r["reason"]))
 
     db = get_db()
     existing = {r[0] for r in db.execute("SELECT event_id FROM shows").fetchall()}
@@ -326,7 +341,7 @@ def main():
     if new_shows:
         lines = []
         for tier, artist, s, reason in new_shows:
-            tag = "" if tier == "following" else f" ({reason})"
+            tag = "" if tier == "rot" else f" ({reason})"
             lines.append(f"{artist} - {s['date']} @ {s['venue']}, {s['city']}{tag}\n{s['url']}")
         notify(f"{len(new_shows)} new NC show(s) for you", "\n\n".join(lines))
     else:
