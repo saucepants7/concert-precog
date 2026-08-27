@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 # ---- settings ---------------------------------------------------------------
 STATE_CODE   = "NC"
 TOP_PERIOD   = "3month"
-TOP_N        = 25
+TOP_N        = 50
 SIMILAR_PER  = 30
 MAX_DISCOVER = 50          # top 25 -> "top" (mustard), 26-50 -> "deep" (rust)
 LASTFM_API   = "https://ws.audioscrobbler.com/2.0/"
