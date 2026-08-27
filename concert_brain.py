@@ -213,8 +213,8 @@ body{{margin:0;background:#000;color:var(--cream);
   font-family:'Poppins',system-ui,sans-serif;line-height:1.4;-webkit-font-smoothing:antialiased}}
 .wrap{{max-width:660px;margin:0 auto;padding:2.2rem 1.2rem 4rem}}
 
-.brand{{text-align:center;margin-bottom:1.8rem}}
-.mark{{display:block;width:380px;max-width:86%;margin:0 auto}}
+.brand{{margin-bottom:1.8rem}}
+.mark{{display:block;width:340px;max-width:82%;margin:0}}
 .tagline{{margin:.7rem 0 0;font-family:'League Spartan',sans-serif;color:var(--cream);
   opacity:.85;font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.14em}}
 
@@ -307,24 +307,34 @@ def main():
 
     db = get_db()
     existing = {r[0] for r in db.execute("SELECT event_id FROM shows").fetchall()}
-    new_shows = []
+
+    # When one event matches several tracked artists (co-headline bills), keep the
+    # highest-priority attribution: rotation > top match > deeper cut. Otherwise a
+    # discovery act processed later overwrites an artist you actually listen to.
+    RANK = {"rot": 3, "top": 2, "deep": 1}
+    best = {}   # event_id -> (rank, artist, tier, reason, show)
     for artist, tier, reason in watch:
-        found = tm_shows_for(artist, tm_key) + sg_shows_for(artist, sg_cid)
-        for s in found:
-            is_new = s["event_id"] not in existing
-            db.execute(
-                """INSERT INTO shows
-                   (event_id,artist,tier,reason,name,date,venue,city,url,first_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(event_id) DO UPDATE SET
-                     artist=excluded.artist, tier=excluded.tier,
-                     reason=excluded.reason, name=excluded.name, date=excluded.date,
-                     venue=excluded.venue, city=excluded.city, url=excluded.url""",
-                (s["event_id"], artist, tier, reason, s["name"], s["date"],
-                 s["venue"], s["city"], s["url"], now))
-            if is_new and s["date"]:
-                new_shows.append((tier, artist, s, reason))
+        for s in tm_shows_for(artist, tm_key) + sg_shows_for(artist, sg_cid):
+            cur = best.get(s["event_id"])
+            if cur is None or RANK[tier] > cur[0]:
+                best[s["event_id"]] = (RANK[tier], artist, tier, reason, s)
         time.sleep(0.2)
+
+    new_shows = []
+    for eid, (_, artist, tier, reason, s) in best.items():
+        is_new = eid not in existing
+        db.execute(
+            """INSERT INTO shows
+               (event_id,artist,tier,reason,name,date,venue,city,url,first_seen)
+               VALUES (?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(event_id) DO UPDATE SET
+                 artist=excluded.artist, tier=excluded.tier,
+                 reason=excluded.reason, name=excluded.name, date=excluded.date,
+                 venue=excluded.venue, city=excluded.city, url=excluded.url""",
+            (eid, artist, tier, reason, s["name"], s["date"],
+             s["venue"], s["city"], s["url"], now))
+        if is_new and s["date"]:
+            new_shows.append((tier, artist, s, reason))
     db.commit()
 
     seen, deduped = set(), []
