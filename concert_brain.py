@@ -184,7 +184,7 @@ def build_dashboard(db):
         why = (f"<div class='why'>{html.escape(reason or '')}</div>"
                if tier in ("top", "deep") and reason else "")
         cards.append(
-            f"<a class='row {tier}' href='{html.escape(url or '#')}'>"
+            f"<a class='row {tier}' href='{html.escape(url or '#')}' target='_blank' rel='noopener'>"
             f"<div class='date'><span class='mon'>{mon}</span><span class='day'>{day}</span></div>"
             f"<div class='meta'><div class='title'>{html.escape(artist or '')}</div>"
             f"<div class='sub'>{loc}</div>{why}</div>"
