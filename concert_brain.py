@@ -30,6 +30,21 @@ DB_PATH   = os.path.join(os.path.dirname(__file__), "concerts.db")
 HTML_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 UA = {"User-Agent": "concert-precog/1.0 (personal project)"}
 
+# --- geographic scope ---
+# Rotation artists surface for shows anywhere in NC. Discovery artists
+# (top/deep) only surface for shows in the Triangle. Matched on venue city
+# (lowercased); Carrboro is included because Cat's Cradle lives there.
+TRIANGLE_CITIES = {
+    "durham", "chapel hill", "carrboro", "raleigh", "cary",
+    "morrisville", "apex", "hillsborough", "pittsboro", "wake forest",
+    "garner", "holly springs", "knightdale", "fuquay-varina", "clayton",
+}
+
+
+def in_triangle(city):
+    return (city or "").strip().lower() in TRIANGLE_CITIES
+
+
 
 def get_json(url):
     req = urllib.request.Request(url, headers=UA)
@@ -315,6 +330,9 @@ def main():
     best = {}   # event_id -> (rank, artist, tier, reason, show)
     for artist, tier, reason in watch:
         for s in tm_shows_for(artist, tm_key) + sg_shows_for(artist, sg_cid):
+            # Rotation: anywhere in NC. Discovery (top/deep): Triangle only.
+            if tier != "rot" and not in_triangle(s.get("city")):
+                continue
             cur = best.get(s["event_id"])
             if cur is None or RANK[tier] > cur[0]:
                 best[s["event_id"]] = (RANK[tier], artist, tier, reason, s)
